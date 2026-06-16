@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import fs from "fs";
 import path from "path";
+import { saveFileToGitHub, isGitHubEnabled } from "@/lib/github";
 
 const SESSION_COOKIE_NAME = "admin_session";
 const contentDirectory = path.join(process.cwd(), "content");
@@ -61,25 +62,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing content" }, { status: 400 });
     }
 
-    let filePath = "";
+    let relativePath = "";
     if (page === "about") {
-      filePath = path.join(contentDirectory, "about.md");
+      relativePath = "content/about.md";
     } else if (page === "now") {
-      filePath = path.join(contentDirectory, "now.md");
+      relativePath = "content/now.md";
     } else if (page === "notes") {
-      filePath = path.join(contentDirectory, "notes", "notebook.md");
+      relativePath = "content/notes/notebook.md";
     }
 
-    // Ensure directory exists
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    const gitHubEnabled = isGitHubEnabled();
+
+    if (gitHubEnabled) {
+      await saveFileToGitHub(relativePath, content, `Update special page: ${page}`);
+    } else {
+      // Fallback: local filesystem writes
+      let filePath = path.join(contentDirectory, page === "notes" ? "notes/notebook.md" : `${page}.md`);
+      
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      fs.writeFileSync(filePath, content, "utf8");
     }
 
-    fs.writeFileSync(filePath, content, "utf8");
     return NextResponse.json({ success: true });
-  } catch (e) {
+  } catch (e: any) {
     console.error("Error saving special page:", e);
-    return NextResponse.json({ error: "Failed to save file" }, { status: 500 });
+    return NextResponse.json(
+      { error: e.message || "Failed to save file" },
+      { status: 500 }
+    );
   }
 }
